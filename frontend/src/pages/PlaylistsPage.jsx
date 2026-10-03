@@ -24,7 +24,7 @@ export function AddToPlaylist({ song, onClose }) {
   return (
     <div className="modal" role="dialog" aria-modal="true">
       <div className="card modal-body small">
-        <button className="icon-btn close" onClick={onClose} aria-label="Cerrar">✕</button>
+        <button type="button" className="icon-btn close" onClick={onClose} aria-label="Cerrar">✕</button>
         <h2>Agregar a playlist</h2>
         <p className="muted">{song.title}</p>
         {playlists.length === 0 ? (
@@ -33,7 +33,7 @@ export function AddToPlaylist({ song, onClose }) {
           <ul className="picker">
             {playlists.map((p) => (
               <li key={p.id}>
-                <button className="btn ghost wide" onClick={() => add(p)}>
+                <button type="button" className="btn ghost wide" onClick={() => add(p)}>
                   {p.name} <small>({p.songs.length})</small>
                 </button>
               </li>
@@ -112,7 +112,7 @@ export default function PlaylistsPage() {
         <label className="check">
           <input type="checkbox" checked={form.isPublic} onChange={(e) => setForm({ ...form, isPublic: e.target.checked })} /> Pública
         </label>
-        <button className="btn">Crear playlist</button>
+        <button type="submit" className="btn">Crear playlist</button>
       </form>
 
       {playlists.length === 0 ? (
@@ -127,7 +127,7 @@ export default function PlaylistsPage() {
                   {p.description || 'Sin descripción'} · {p.songs.length} canciones {p.isPublic ? '· Pública' : ''}
                 </span>
               </div>
-              <button className="btn ghost danger" onClick={() => destroy(p)}>Eliminar</button>
+              <button type="button" className="btn ghost danger" onClick={() => destroy(p)}>Eliminar</button>
             </header>
             {p.songs.length === 0 ? (
               <Empty>Agrega canciones desde el catálogo con ＋.</Empty>

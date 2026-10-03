@@ -2,4 +2,3 @@ subscription_id = "00000000-0000-0000-0000-000000000000"
 suffix          = "laos19"
 location        = "eastus2"
 admin_email     = "admin@musicstream.pe"
-# admin_password se pasa como TF_VAR_admin_password (secreto de GitHub)

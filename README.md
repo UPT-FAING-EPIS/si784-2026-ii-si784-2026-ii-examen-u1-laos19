@@ -6,7 +6,7 @@ Plataforma web para suscribirse, gestionar y disfrutar de streaming de música. 
 |---|---|
 | **Backend** | ASP.NET Core 8 Web API · EF Core · PostgreSQL (prod) / SQLite (dev) · JWT · xUnit |
 | **Frontend** | React 19 + Vite · React Router · Vitest |
-| **Contenedor** | `backend/Dockerfile` (multi-stage, runtime `aspnet:8.0-noble-chiseled`, usuario no root) |
+| **Contenedor** | `backend/Dockerfile` (multi-stage, runtime `aspnet:8.0-azurelinux3.0-distroless`, usuario no root, HEALTHCHECK) |
 | **Nube** | Microsoft Azure (App Service Linux, ACR, PostgreSQL Flexible Server privado, Static Web Apps) |
 | **IaC** | Terraform (`infra/terraform`) |
 | **CI/CD** | GitHub Actions (`.github/workflows`) |
@@ -15,12 +15,10 @@ Plataforma web para suscribirse, gestionar y disfrutar de streaming de música. 
 
 | | URL |
 |---|---|
-| Aplicación publicada (frontend) | `https://<host>.azurestaticapps.net` — se muestra en el resumen del workflow **deploy** |
-| API publicada (Swagger) | `https://app-musicstream-<AZURE_SUFFIX>-api.azurewebsites.net/swagger` |
+| Aplicación publicada (frontend) | `https://<host>.azurestaticapps.net`: aparece en el resumen del workflow **deploy** |
+| API publicada (Swagger) | `https://app-musicstream-laos19-api.azurewebsites.net/swagger` |
 | Repositorio | https://github.com/UPT-FAING-EPIS/si784-2026-ii-si784-2026-ii-examen-u1-laos19 |
-| SonarCloud | `https://sonarcloud.io/project/overview?id=<SONAR_PROJECT_KEY>` |
-
-> Las URLs públicas existen después de configurar los secretos y ejecutar `infra.yml` y luego `deploy.yml` (ver [Configuración de CI/CD](#configuración-de-cicd)).
+| Sonar | Ejecución del workflow **sonar** en la pestaña *Actions* (resumen + artefacto `sonarqube-report`) |
 
 ## Funcionalidades
 
@@ -70,32 +68,45 @@ POSTGRES_PASSWORD='<clave-db>' ADMIN_PASSWORD='<clave-admin>' docker compose up 
 ### Pruebas
 
 ```bash
-dotnet test backend/MusicStream.sln     # 41 pruebas unitarias + de integración (WebApplicationFactory)
+dotnet test backend/MusicStream.sln     # 44 pruebas unitarias + de integración (WebApplicationFactory)
 cd frontend && npm run test:coverage    # pruebas de validación y cliente HTTP
 ```
 
-## Configuración de CI/CD
+## Configuración de CI/CD (sin tokens)
 
-| Workflow | Propósito |
+| Workflow | Propósito | Necesita configurar |
+|---|---|---|
+| [`sonar.yml`](.github/workflows/sonar.yml) | Levanta un **SonarQube Community efímero** en el runner, genera sus propias credenciales, analiza C#, JS, Terraform y Docker con cobertura y falla si hay bugs, vulnerabilidades o hotspots. Publica el reporte HTML/JSON/MD | Nada |
+| [`snyk-semgrep.yml`](.github/workflows/snyk-semgrep.yml) | **Semgrep** (SAST) y **Trivy** (dependencias NuGet/npm, secretos, Dockerfile/Terraform e imagen del contenedor). Reportes como artefactos y en *Security → Code scanning* | Nada |
+| [`generate-documentation.yml`](.github/workflows/generate-documentation.yml) | Diccionario de datos y diagramas ER, de clases, de componentes y de despliegue (Mermaid) en [`docs/`](docs/README.md) | Nada |
+| [`infra.yml`](.github/workflows/infra.yml) | Terraform: estado remoto y RG, VNet, PostgreSQL privado, ACR, App Service, Static Web App, Application Insights. **Genera todas las contraseñas** (BD, JWT, admin) | Azure (una vez) |
+| [`deploy.yml`](.github/workflows/deploy.yml) | Pruebas, imagen → ACR → App Service, frontend → Static Web Apps | Azure (una vez) |
+
+### Conectar Azure una sola vez (sin contraseñas)
+
+Azure es el único servicio que necesita tu cuenta, porque los recursos se crean en tu suscripción. No se guarda ninguna contraseña: GitHub obtiene un token temporal en cada ejecución (OIDC federado).
+
+1. Abre [portal.azure.com](https://portal.azure.com) → icono **Cloud Shell** (`>_`) → **Bash**, y ejecuta:
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/UPT-FAING-EPIS/si784-2026-ii-si784-2026-ii-examen-u1-laos19/main/infra/bootstrap/setup-github-oidc.sh | bash
+   ```
+2. El script imprime 3 valores. Regístralos en GitHub → *Settings → Secrets and variables → Actions → **Variables*** (no son secretos): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` y `AZURE_SUBSCRIPTION_ID`.
+3. En *Actions* ejecuta **infra** y luego **deploy**.
+
+Opcionales: `AZURE_SUFFIX` (por defecto `laos19`) y `AZURE_LOCATION` (por defecto `eastus2`).
+Contraseña del administrador (`admin@musicstream.pe`): Portal de Azure → App Service `app-musicstream-laos19-api` → *Configuración* → `Seed__AdminPassword`, o bien:
+```bash
+az webapp config appsettings list -g rg-musicstream-laos19 -n app-musicstream-laos19-api --query "[?name=='Seed__AdminPassword'].value" -o tsv
+```
+
+**Integraciones opcionales** (si se agregan, se usan automáticamente): secreto `SONAR_TOKEN` + variables `SONAR_ORGANIZATION`/`SONAR_PROJECT_KEY` para enviar el análisis a SonarCloud (dashboard permanente), y secreto `SNYK_TOKEN` para ejecutar también Snyk.
+
+### Seguridad: riesgos aceptados
+
+| Regla | Motivo |
 |---|---|
-| [`infra.yml`](.github/workflows/infra.yml) | Terraform: crea el backend de estado remoto y aprovisiona RG, VNet, PostgreSQL privado, ACR, App Service, Static Web App y Application Insights |
-| [`deploy.yml`](.github/workflows/deploy.yml) | Pruebas, build y push de la imagen a ACR, actualización del App Service, build y despliegue del frontend a Static Web Apps |
-| [`sonar.yml`](.github/workflows/sonar.yml) | Análisis SonarCloud (C#, JS, Terraform, Docker) con cobertura y Quality Gate |
-| [`snyk-semgrep.yml`](.github/workflows/snyk-semgrep.yml) | Semgrep SAST + Snyk Open Source, Code y Container. Reportes HTML/JSON/SARIF como artefactos y en *Code scanning* |
-| [`generate-documentation.yml`](.github/workflows/generate-documentation.yml) | Diccionario de datos, diagramas ER, de clases, de componentes y de despliegue (Mermaid) en [`docs/`](docs/README.md) |
-
-**Secretos** (`Settings → Secrets and variables → Actions`):
-
-| Secreto | Uso |
-|---|---|
-| `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | Service principal: `az ad sp create-for-rbac --name musicstream-gha --role Owner --scopes /subscriptions/<id>` (Owner es necesario para asignar el rol `AcrPull`) |
-| `APP_ADMIN_PASSWORD` | Contraseña del administrador inicial (`admin@musicstream.pe`) |
-| `SONAR_TOKEN` | Token de SonarCloud |
-| `SNYK_TOKEN` | Token de Snyk |
-
-**Variables**: `AZURE_SUFFIX` (por ejemplo `laos19`), `AZURE_LOCATION` (opcional, `eastus2` por defecto), `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`.
-
-Orden: `infra` → `deploy`. `sonar`, `snyk-semgrep` y `generate-documentation` se ejecutan con cada push a `main` o manualmente.
+| `terraform:S6329` (ACR con acceso público) | El SKU Basic de Azure Container Registry no permite deshabilitar el acceso público. Mitigado: sin usuario administrador y descarga por identidad administrada (`AcrPull`). PostgreSQL sí es privado (VNet) |
+| `terraform:S6380` / Trivy `AZU-0003` (App Service sin Easy Auth) | La API es pública por diseño (catálogo, registro y login) y aplica su propia autenticación JWT con roles |
 
 ## Estructura
 
@@ -107,7 +118,9 @@ backend/
   Dockerfile
 frontend/                    SPA React (pages/, components/, lib/)
 infra/terraform/             Infraestructura Azure
+infra/bootstrap/             Configuración única de OIDC GitHub → Azure
 docs/                        Documentación generada
 .github/workflows/           Automatizaciones
+.github/scripts/             SonarQube efímero y reporte
 ```
 

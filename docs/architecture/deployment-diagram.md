@@ -10,6 +10,9 @@ Recursos declarados en Terraform (`infra/terraform`):
 - `azurerm_log_analytics_workspace.main`
 - `azurerm_postgresql_flexible_server.main`
 - `azurerm_postgresql_flexible_server_configuration.require_ssl`
+- `azurerm_postgresql_flexible_server_configuration.log_connections`
+- `azurerm_postgresql_flexible_server_configuration.log_checkpoints`
+- `azurerm_postgresql_flexible_server_configuration.connection_throttling`
 - `azurerm_postgresql_flexible_server_database.main`
 - `azurerm_private_dns_zone.postgres`
 - `azurerm_private_dns_zone_virtual_network_link.postgres`
@@ -22,10 +25,12 @@ Recursos declarados en Terraform (`infra/terraform`):
 - `azurerm_virtual_network.main`
 - `random_password.postgres`
 - `random_password.jwt`
+- `random_password.admin`
 
 ```mermaid
 flowchart TB
     dev([Desarrollador]) -->|git push| gh[GitHub Repository]
+    gh -.OIDC sin secretos.-> AZ
     subgraph GHA["GitHub Actions"]
         infra[infra.yml<br/>Terraform]
         deploy[deploy.yml]
@@ -34,15 +39,15 @@ flowchart TB
         docs[generate-documentation.yml]
     end
     gh --> GHA
-    sonar --> sc[(SonarCloud)]
-    sec --> snyk[(Snyk / Semgrep)]
+    sonar --> sc[(SonarQube efímero<br/>o SonarCloud)]
+    sec --> snyk[(Semgrep / Trivy<br/>Snyk opcional)]
     browser([Navegador del usuario])
     subgraph AZ["Microsoft Azure - Resource Group"]
         swa[Azure Static Web Apps<br/>Frontend React]
         acr[(Azure Container Registry<br/>musicstream-api)]
         subgraph VNET["Virtual Network 10.20.0.0/16"]
             subgraph SAPP["snet-app"]
-                app[App Service Linux<br/>contenedor .NET 8 chiseled<br/>Managed Identity]
+                app[App Service Linux<br/>contenedor .NET 8 distroless<br/>Managed Identity]
             end
             subgraph SDB["snet-db"]
                 pg[(PostgreSQL Flexible Server 16<br/>acceso privado)]

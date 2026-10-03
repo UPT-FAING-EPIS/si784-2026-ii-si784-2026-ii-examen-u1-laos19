@@ -1,9 +1,11 @@
 name: infra
 
 # Aprovisiona la infraestructura en Azure con Terraform.
-# Secretos requeridos: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-# (service principal con rol Owner sobre la suscripción) y APP_ADMIN_PASSWORD.
-# Variables requeridas: AZURE_SUFFIX (ej. laos19). Opcional: AZURE_LOCATION.
+# Autenticación sin secretos (OIDC): ejecutar una vez infra/bootstrap/setup-github-oidc.sh
+# en Azure Cloud Shell y registrar como *Variables* del repositorio:
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# Opcionales: AZURE_SUFFIX (por defecto laos19) y AZURE_LOCATION (por defecto eastus2).
+# Las contraseñas (PostgreSQL, JWT y administrador) las genera Terraform.
 
 on:
   workflow_dispatch:
@@ -16,11 +18,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "infra/**"
+      - "infra/terraform/**"
       - ".github/workflows/infra.yml"
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: infra
@@ -29,29 +32,40 @@ concurrency:
 env:
   TF_DIR: infra/terraform
   TF_IN_AUTOMATION: "true"
-  SUFFIX: ${{ vars.AZURE_SUFFIX }}
+  SUFFIX: ${{ vars.AZURE_SUFFIX || 'laos19' }}
   LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_suffix: ${{ vars.AZURE_SUFFIX || 'laos19' }}
+  TF_VAR_location: ${{ vars.AZURE_LOCATION || 'eastus2' }}
 
 jobs:
   terraform:
     name: Terraform ${{ inputs.action || 'apply' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # En push se omite hasta que Azure esté configurado; manualmente muestra el error de configuración.
+    if: vars.AZURE_CLIENT_ID != '' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Validar configuración
         run: |
-          if [ -z "$SUFFIX" ]; then
-            echo "::error::Defina la variable de repositorio AZURE_SUFFIX (3-12 caracteres en minúsculas/números)."
+          if [ -z "$ARM_CLIENT_ID" ] || [ -z "$ARM_TENANT_ID" ] || [ -z "$ARM_SUBSCRIPTION_ID" ]; then
+            echo "::error::Faltan las variables AZURE_CLIENT_ID, AZURE_TENANT_ID y AZURE_SUBSCRIPTION_ID. Ejecute infra/bootstrap/setup-github-oidc.sh en Azure Cloud Shell (ver README)."
             exit 1
           fi
 
-      - name: Azure login
+      - name: Azure login (OIDC, sin secretos)
         uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
         with:
-          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Bootstrap del backend remoto (Storage Account para el estado)
         run: |
@@ -63,7 +77,7 @@ jobs:
               --sku Standard_LRS --kind StorageV2 --min-tls-version TLS1_2 \
               --allow-blob-public-access false --https-only true --output none
           fi
-          # La CLI obtiene la clave de la cuenta con las credenciales del service principal.
+          # La CLI obtiene la clave de la cuenta con la identidad federada.
           az storage container create --name tfstate --account-name "$sa" --auth-mode key --output none
           {
             echo "TFSTATE_RG=$rg"
@@ -82,40 +96,21 @@ jobs:
 
       - name: Terraform init
         working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           terraform init -input=false \
             -backend-config="resource_group_name=${TFSTATE_RG}" \
             -backend-config="storage_account_name=${TFSTATE_SA}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=musicstream.tfstate"
+            -backend-config="key=musicstream.tfstate" \
+            -backend-config="use_oidc=true"
 
       - name: Terraform validate
         working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: terraform validate
 
       - name: Terraform plan
         working-directory: ${{ env.TF_DIR }}
         env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_suffix: ${{ vars.AZURE_SUFFIX }}
-          TF_VAR_location: ${{ vars.AZURE_LOCATION || 'eastus2' }}
-          TF_VAR_admin_password: ${{ secrets.APP_ADMIN_PASSWORD }}
           ACTION: ${{ inputs.action || 'apply' }}
         run: |
           if [ "$ACTION" = "destroy" ]; then
@@ -127,28 +122,18 @@ jobs:
       - name: Terraform apply
         if: ${{ (inputs.action || 'apply') != 'plan' }}
         working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: terraform apply -input=false -auto-approve tfplan
 
       - name: Publicar salidas
         if: ${{ (inputs.action || 'apply') == 'apply' }}
         working-directory: ${{ env.TF_DIR }}
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           {
             echo "## Infraestructura aprovisionada"
             echo ""
             echo "| Recurso | Valor |"
             echo "|---|---|"
-            terraform output -json | jq -r 'to_entries[] | "| \(.key) | \(.value.value) |"'
+            terraform output -json | jq -r 'to_entries[] | select(.value.sensitive | not) | "| \(.key) | \(.value.value) |"'
+            echo ""
+            echo "La contraseña del administrador inicial está en el App Service (Configuración → Seed__AdminPassword)."
           } >> "$GITHUB_STEP_SUMMARY"

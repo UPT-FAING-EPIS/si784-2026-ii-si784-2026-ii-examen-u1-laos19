@@ -24,4 +24,6 @@ provider "azurerm" {
     }
   }
   subscription_id = var.subscription_id
+  # Autenticación sin secretos: GitHub Actions entrega un token OIDC federado.
+  use_oidc = true
 }

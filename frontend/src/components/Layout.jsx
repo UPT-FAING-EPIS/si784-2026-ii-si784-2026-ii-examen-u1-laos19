@@ -24,7 +24,7 @@ export function Layout({ children }) {
             <>
               <span className="who">{user.fullName}</span>
               <small>{user.email}</small>
-              <button
+              <button type="button"
                 className="btn ghost"
                 onClick={() => {
                   logout();

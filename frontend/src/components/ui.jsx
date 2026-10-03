@@ -21,7 +21,7 @@ export function SongRow({ song, onAdd, onRemove, extra }) {
   const active = nowPlaying?.id === song.id;
   return (
     <li className={`song-row ${active ? 'active' : ''}`}>
-      <button className="icon-btn play" onClick={() => play(song)} aria-label={`Reproducir ${song.title}`}>
+      <button type="button" className="icon-btn play" onClick={() => play(song)} aria-label={`Reproducir ${song.title}`}>
         {active ? '♪' : '▶'}
       </button>
       <div className="song-meta">
@@ -35,12 +35,12 @@ export function SongRow({ song, onAdd, onRemove, extra }) {
       {extra}
       <span className="duration">{formatDuration(song.durationSeconds)}</span>
       {onAdd && (
-        <button className="icon-btn" onClick={() => onAdd(song)} aria-label="Agregar a playlist" title="Agregar a playlist">
+        <button type="button" className="icon-btn" onClick={() => onAdd(song)} aria-label="Agregar a playlist" title="Agregar a playlist">
           ＋
         </button>
       )}
       {onRemove && (
-        <button className="icon-btn danger" onClick={() => onRemove(song)} aria-label="Quitar" title="Quitar">
+        <button type="button" className="icon-btn danger" onClick={() => onRemove(song)} aria-label="Quitar" title="Quitar">
           ✕
         </button>
       )}

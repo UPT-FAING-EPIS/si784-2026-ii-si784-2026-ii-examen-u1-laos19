@@ -49,12 +49,6 @@ variable "admin_email" {
   default     = "admin@musicstream.pe"
 }
 
-variable "admin_password" {
-  description = "Contraseña del administrador inicial de la aplicación."
-  type        = string
-  sensitive   = true
-}
-
 variable "image_tag" {
   description = "Tag inicial de la imagen del backend en ACR."
   type        = string

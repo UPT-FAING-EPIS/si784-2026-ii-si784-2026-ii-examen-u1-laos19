@@ -1,11 +1,12 @@
 name: snyk-semgrep
 
-# Escaneo de seguridad:
-#  - Semgrep (SAST) sobre el código fuente.
-#  - Snyk Open Source (dependencias .NET y npm), Snyk Code (SAST) y Snyk Container (imagen del backend).
-# Los reportes (SARIF, JSON y HTML) se publican como artefacto "security-reports"
-# y en la pestaña Security > Code scanning. El job falla si se detecta alguna vulnerabilidad.
-# Secretos: SNYK_TOKEN. Opcional: SEMGREP_APP_TOKEN.
+# Escaneo de seguridad del código y de la imagen del contenedor. No necesita tokens:
+#  - Semgrep (SAST) sobre el código fuente, workflows, Dockerfile y Terraform.
+#  - Trivy: vulnerabilidades en dependencias (NuGet y npm), secretos expuestos,
+#    configuraciones inseguras (Dockerfile/Terraform) y vulnerabilidades de la imagen del backend.
+#  - Snyk (opcional): sólo se ejecuta si existe el secreto SNYK_TOKEN.
+# Los reportes (SARIF, JSON, tabla y HTML) se publican como artefactos y en Security > Code scanning.
+# Cada job falla si encuentra alguna vulnerabilidad.
 
 on:
   push:
@@ -87,8 +88,121 @@ jobs:
           echo "::error::Semgrep encontró hallazgos de seguridad."
           exit 1
 
+  trivy:
+    name: Trivy (dependencias, secretos, IaC e imagen)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      TRIVY_VERSION: 0.75.0
+      TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Instalar Trivy (versión fijada y verificada)
+        run: |
+          curl -sSfLo /tmp/trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  /tmp/trivy.tgz" | sha256sum --check
+          sudo mkdir -p /opt/trivy
+          sudo tar -xzf /tmp/trivy.tgz -C /opt/trivy
+          sudo ln -sf /opt/trivy/trivy /usr/local/bin/trivy
+          trivy --version
+
+      - name: Construir imagen del backend
+        run: docker build -t musicstream-api:scan backend
+
+      - name: Escanear repositorio (dependencias, secretos y configuración)
+        id: fs
+        run: |
+          mkdir -p reports
+          set +e
+          trivy fs . --scanners vuln,secret,misconfig --skip-dirs docs \
+            --format json --output reports/trivy-repo.json
+          trivy convert --scanners vuln,secret,misconfig --format table --output reports/trivy-repo.txt reports/trivy-repo.json
+          trivy convert --format sarif --output reports/trivy-repo.sarif reports/trivy-repo.json
+          trivy convert --format template --template "@/opt/trivy/contrib/html.tpl" \
+            --output reports/trivy-repo.html reports/trivy-repo.json 2>/dev/null
+          trivy convert --exit-code 1 --format table reports/trivy-repo.json > /dev/null
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Escanear imagen del contenedor
+        id: image
+        run: |
+          set +e
+          trivy image musicstream-api:scan --scanners vuln,secret,misconfig \
+            --format json --output reports/trivy-image.json
+          trivy convert --scanners vuln,secret,misconfig --format table --output reports/trivy-image.txt reports/trivy-image.json
+          trivy convert --format sarif --output reports/trivy-image.sarif reports/trivy-image.json
+          trivy convert --exit-code 1 --format table reports/trivy-image.json > /dev/null
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resumen
+        if: always()
+        env:
+          FS_CODE: ${{ steps.fs.outputs.exit_code }}
+          IMAGE_CODE: ${{ steps.image.outputs.exit_code }}
+        run: |
+          status() { if [ "$1" = "0" ]; then echo "✅ sin hallazgos"; else echo "❌ revisar reporte"; fi; }
+          {
+            echo "## Trivy"
+            echo ""
+            echo "| Escaneo | Resultado |"
+            echo "|---|---|"
+            echo "| Repositorio: dependencias NuGet/npm, secretos, Dockerfile y Terraform | $(status "$FS_CODE") |"
+            echo "| Imagen de contenedor del backend | $(status "$IMAGE_CODE") |"
+            echo ""
+            echo '<details><summary>Detalle repositorio</summary>'
+            echo ""
+            echo '```'
+            cat reports/trivy-repo.txt 2>/dev/null || true
+            echo '```'
+            echo '</details>'
+            echo ""
+            echo '<details><summary>Detalle imagen</summary>'
+            echo ""
+            echo '```'
+            cat reports/trivy-image.txt 2>/dev/null || true
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar SARIF (repositorio)
+        if: always() && hashFiles('reports/trivy-repo.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/trivy-repo.sarif
+          category: trivy-repo
+
+      - name: Publicar SARIF (imagen)
+        if: always() && hashFiles('reports/trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/trivy-image.sarif
+          category: trivy-image
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: security-reports-trivy
+          path: reports/
+
+      - name: Verificar resultado
+        env:
+          FS_CODE: ${{ steps.fs.outputs.exit_code }}
+          IMAGE_CODE: ${{ steps.image.outputs.exit_code }}
+        run: |
+          if [ "$FS_CODE" != "0" ] || [ "$IMAGE_CODE" != "0" ]; then
+            echo "::error::Trivy encontró hallazgos de seguridad."
+            exit 1
+          fi
+
   snyk:
-    name: Snyk (código, dependencias e imagen)
+    name: Snyk (opcional, requiere SNYK_TOKEN)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -96,30 +210,41 @@ jobs:
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
+      - name: Snyk no configurado
+        if: env.SNYK_TOKEN == ''
+        run: echo "::notice::Snyk omitido (sin secreto SNYK_TOKEN). El escaneo sin tokens lo realizan los jobs Semgrep y Trivy."
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.SNYK_TOKEN != ''
 
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        if: env.SNYK_TOKEN != ''
         with:
           dotnet-version: 8.0.x
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: env.SNYK_TOKEN != ''
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Instalar Snyk CLI y snyk-to-html
+        if: env.SNYK_TOKEN != ''
         run: npm install --global snyk snyk-to-html
 
       - name: Restaurar dependencias
+        if: env.SNYK_TOKEN != ''
         run: |
           dotnet restore backend/MusicStream.sln
           (cd frontend && npm ci)
 
       - name: Construir imagen del backend
+        if: env.SNYK_TOKEN != ''
         run: docker build -t musicstream-api:scan backend
 
       - name: Snyk Open Source - backend (.NET)
+        if: env.SNYK_TOKEN != ''
         id: deps_backend
         run: |
           mkdir -p reports
@@ -130,6 +255,7 @@ jobs:
           exit 0
 
       - name: Snyk Open Source - frontend (npm)
+        if: env.SNYK_TOKEN != ''
         id: deps_frontend
         run: |
           set +e
@@ -139,6 +265,7 @@ jobs:
           exit 0
 
       - name: Snyk Code (SAST)
+        if: env.SNYK_TOKEN != ''
         id: code
         run: |
           set +e
@@ -148,6 +275,7 @@ jobs:
           exit 0
 
       - name: Snyk Container - imagen del backend
+        if: env.SNYK_TOKEN != ''
         id: container
         run: |
           set +e
@@ -157,7 +285,7 @@ jobs:
           exit 0
 
       - name: Generar reportes HTML
-        if: always()
+        if: env.SNYK_TOKEN != '' && (always())
         run: |
           for f in reports/snyk-*.json; do
             [ -s "$f" ] && snyk-to-html -i "$f" -o "${f%.json}.html" || true
@@ -176,7 +304,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publicar SARIF (código)
-        if: always() && hashFiles('reports/snyk-code.sarif') != ''
+        if: env.SNYK_TOKEN != '' && (always() && hashFiles('reports/snyk-code.sarif') != '')
         uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         continue-on-error: true
         with:
@@ -184,7 +312,7 @@ jobs:
           category: snyk-code
 
       - name: Publicar SARIF (contenedor)
-        if: always() && hashFiles('reports/snyk-container.sarif') != ''
+        if: env.SNYK_TOKEN != '' && (always() && hashFiles('reports/snyk-container.sarif') != '')
         uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         continue-on-error: true
         with:
@@ -192,12 +320,13 @@ jobs:
           category: snyk-container
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: env.SNYK_TOKEN != '' && (always())
         with:
           name: security-reports-snyk
           path: reports/
 
       - name: Verificar resultado
+        if: env.SNYK_TOKEN != ''
         env:
           DEPS_BACKEND: ${{ steps.deps_backend.outputs.exit_code }}
           DEPS_FRONTEND: ${{ steps.deps_frontend.outputs.exit_code }}

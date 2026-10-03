@@ -1,0 +1,4 @@
+# Riesgos aceptados y documentados (ver README, sección Seguridad).
+# AZU-0003: la API es pública por diseño (catálogo, registro, login) y aplica su propia
+# autenticación JWT con roles; Easy Auth de App Service la duplicaría y bloquearía el frontend.
+AZU-0003

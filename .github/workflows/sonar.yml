@@ -1,8 +1,15 @@
 name: sonar
 
-# Análisis estático con SonarCloud (C# + JavaScript/React + Terraform + Docker).
-# Secretos: SONAR_TOKEN. Variables: SONAR_ORGANIZATION, SONAR_PROJECT_KEY.
-# El Quality Gate debe pasar sin bugs, vulnerabilidades ni security hotspots.
+# Análisis estático con SonarQube (C#, JavaScript/React, Terraform y Docker).
+#
+# Sin configuración: levanta un SonarQube Community efímero dentro del runner, genera sus
+# propias credenciales, analiza el código y publica el reporte (HTML/JSON/Markdown) como
+# artefacto "sonarqube-report" y en el resumen de la ejecución. No necesita tokens.
+#
+# Opcional: si existe el secreto SONAR_TOKEN (y las variables SONAR_ORGANIZATION y
+# SONAR_PROJECT_KEY), el análisis se envía a SonarCloud para tener un dashboard permanente.
+#
+# Política: el job falla si hay bugs, vulnerabilidades o security hotspots sin revisar.
 
 on:
   push:
@@ -15,13 +22,26 @@ permissions:
   contents: read
 
 jobs:
-  sonarcloud:
-    name: SonarCloud
+  sonar:
+    name: SonarQube
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SONARCLOUD_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+
+      - name: Iniciar SonarQube efímero (sin tokens)
+        if: env.SONARCLOUD_TOKEN == ''
+        run: |
+          sudo sysctl -w vm.max_map_count=262144
+          .github/scripts/sonarqube-start.sh
+
+      - name: Usar SonarCloud
+        if: env.SONARCLOUD_TOKEN != ''
+        run: echo "SONAR_HOST_URL=https://sonarcloud.io" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -38,41 +58,25 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Cache de SonarCloud
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-
       - name: Instalar SonarScanner for .NET
         run: dotnet tool install --global dotnet-sonarscanner
 
-      - name: Frontend - pruebas con cobertura
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run test:coverage
-
-      - name: Análisis
+      - name: Pruebas y análisis
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
-        run: |
-          dotnet sonarscanner begin \
-            /k:"$SONAR_PROJECT_KEY" \
-            /o:"$SONAR_ORGANIZATION" \
-            /d:sonar.token="$SONAR_TOKEN" \
-            /d:sonar.host.url="https://sonarcloud.io" \
-            /d:sonar.projectBaseDir="$GITHUB_WORKSPACE" \
-            /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" \
-            /d:sonar.javascript.lcov.reportPaths="frontend/coverage/lcov.info" \
-            /d:sonar.exclusions="**/bin/**,**/obj/**,**/node_modules/**,frontend/dist/**,frontend/coverage/**,docs/**,src/**,index.html,vite.config.js,tailwind.config.js,postcss.config.js,.github/**" \
-            /d:sonar.coverage.exclusions="backend/src/MusicStream.Api/Program.cs,backend/src/MusicStream.Api/Dtos/**,backend/tools/**,frontend/src/pages/**,frontend/src/components/**,frontend/src/main.jsx,frontend/src/App.jsx,frontend/vite.config.js,**/*.test.js" \
-            /d:sonar.cpd.exclusions="backend/tests/**" \
-            /d:sonar.qualitygate.wait=true
-          dotnet build backend/MusicStream.sln --configuration Release
-          dotnet test backend/MusicStream.sln --configuration Release --no-build \
-            --collect:"XPlat Code Coverage" \
-            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
-          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN || env.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'musicstream' }}
+          SONAR_ORGANIZATION: ${{ env.SONARCLOUD_TOKEN != '' && vars.SONAR_ORGANIZATION || '' }}
+        run: .github/scripts/sonarqube-analyze.sh
+
+      - name: Reporte y política (0 bugs, 0 vulnerabilidades, 0 hotspots)
+        if: always() && env.SONARCLOUD_TOKEN == '' && env.SONAR_ADMIN_PASSWORD != ''
+        env:
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'musicstream' }}
+        run: python3 .github/scripts/sonar_report.py sonarqube-report
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && env.SONARCLOUD_TOKEN == ''
+        with:
+          name: sonarqube-report
+          path: sonarqube-report/
+          if-no-files-found: ignore

@@ -12,6 +12,12 @@ using MusicStream.Api.Domain;
 using MusicStream.Api.Infrastructure;
 using MusicStream.Api.Services;
 
+// Modo healthcheck para el HEALTHCHECK de Docker (la imagen distroless no tiene curl ni shell).
+if (args.Contains("--healthcheck"))
+{
+    return await HealthProbe.RunAsync();
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------- Base de datos ----------
@@ -162,6 +168,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 await app.RunAsync();
+return 0;
 
 /// <summary>Punto de entrada expuesto para pruebas de integración.</summary>
 public partial class Program

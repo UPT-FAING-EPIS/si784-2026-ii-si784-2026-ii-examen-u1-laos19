@@ -69,7 +69,7 @@ export default function SubscriptionPage() {
                 {current.autoRenew ? 'Renovación automática' : 'Sin renovación automática'}
               </p>
             </div>
-            <button className="btn ghost danger" onClick={cancel} disabled={busy}>Cancelar suscripción</button>
+            <button type="button" className="btn ghost danger" onClick={cancel} disabled={busy}>Cancelar suscripción</button>
           </>
         ) : (
           <p>No tienes una suscripción activa. Elige un plan para continuar.</p>
@@ -94,7 +94,7 @@ export default function SubscriptionPage() {
                 <li>{p.allowsPremiumContent ? '✓ Contenido premium' : '✕ Sin contenido premium'}</li>
                 <li>✓ Hasta {p.maxPlaylists} playlists</li>
               </ul>
-              <button className="btn wide" disabled={busy} onClick={() => subscribe(p)}>
+              <button type="button" className="btn wide" disabled={busy} onClick={() => subscribe(p)}>
                 {isCurrent ? 'Renovar' : 'Elegir plan'}
               </button>
             </article>

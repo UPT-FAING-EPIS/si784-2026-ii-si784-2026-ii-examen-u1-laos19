@@ -72,11 +72,11 @@ export default function AuthPage() {
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           />
         </Field>
-        <button className="btn" disabled={busy}>
+        <button type="submit" className="btn" disabled={busy}>
           {busy ? 'Procesando…' : mode === 'login' ? 'Entrar' : 'Registrarme'}
         </button>
       </form>
-      <button
+      <button type="button"
         className="link"
         onClick={() => {
           setMode(mode === 'login' ? 'register' : 'login');

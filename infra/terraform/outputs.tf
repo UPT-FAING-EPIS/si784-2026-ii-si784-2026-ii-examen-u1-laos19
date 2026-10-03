@@ -29,3 +29,12 @@ output "frontend_url" {
 output "postgres_fqdn" {
   value = azurerm_postgresql_flexible_server.main.fqdn
 }
+
+output "admin_email" {
+  value = var.admin_email
+}
+
+output "admin_password" {
+  value     = random_password.admin.result
+  sensitive = true
+}

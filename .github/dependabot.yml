@@ -1,22 +1,40 @@
+# Actualizaciones automáticas agrupadas; las versiones mayores se revisan manualmente.
 version: 2
 updates:
   - package-ecosystem: nuget
     directory: /backend
     schedule:
       interval: weekly
+    groups:
+      nuget:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: terraform
-    directory: /infra/terraform
-    schedule:
-      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

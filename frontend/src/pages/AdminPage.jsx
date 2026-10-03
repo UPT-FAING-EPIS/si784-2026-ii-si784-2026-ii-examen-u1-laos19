@@ -22,7 +22,7 @@ export default function AdminPage() {
       </header>
       <div className="chips tabs">
         {TABS.map((t) => (
-          <button key={t} className={`chip ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
+          <button type="button" key={t} className={`chip ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t}
           </button>
         ))}
@@ -109,7 +109,7 @@ function PlansAdmin() {
         <label className="check"><input type="checkbox" checked={form.allowsPremiumContent} onChange={set('allowsPremiumContent')} /> Contenido premium</label>
         <label className="check"><input type="checkbox" checked={form.isActive} onChange={set('isActive')} /> Activo</label>
         <div className="row">
-          <button className="btn">Guardar</button>
+          <button type="submit" className="btn">Guardar</button>
           {editing && <button type="button" className="btn ghost" onClick={() => { setEditing(null); setForm(EMPTY_PLAN); }}>Cancelar</button>}
         </div>
       </form>
@@ -125,8 +125,8 @@ function PlansAdmin() {
                 <td>{p.durationDays}</td>
                 <td>{p.isActive ? 'Activo' : 'Inactivo'}</td>
                 <td className="actions">
-                  <button className="link" onClick={() => edit(p)}>Editar</button>
-                  {p.isActive && !p.isFree && <button className="link danger" onClick={() => deactivate(p)}>Desactivar</button>}
+                  <button type="button" className="link" onClick={() => edit(p)}>Editar</button>
+                  {p.isActive && !p.isFree && <button type="button" className="link danger" onClick={() => deactivate(p)}>Desactivar</button>}
                 </td>
               </tr>
             ))}
@@ -171,8 +171,8 @@ function UsersAdmin() {
               <td className="actions">
                 {u.id !== user.id && (
                   <>
-                    <button className="link" onClick={() => update(u, { isActive: !u.isActive })}>{u.isActive ? 'Deshabilitar' : 'Habilitar'}</button>
-                    <button className="link" onClick={() => update(u, { role: u.role === 'Admin' ? 'User' : 'Admin' })}>
+                    <button type="button" className="link" onClick={() => update(u, { isActive: !u.isActive })}>{u.isActive ? 'Deshabilitar' : 'Habilitar'}</button>
+                    <button type="button" className="link" onClick={() => update(u, { role: u.role === 'Admin' ? 'User' : 'Admin' })}>
                       {u.role === 'Admin' ? 'Quitar admin' : 'Hacer admin'}
                     </button>
                   </>
@@ -224,7 +224,7 @@ function SubscriptionsAdmin() {
                 <td>{formatDate(s.startDate)}</td>
                 <td>{formatDate(s.endDate)}</td>
                 <td>{s.status}</td>
-                <td>{s.status === 'Active' && <button className="link danger" onClick={() => cancel(s)}>Cancelar</button>}</td>
+                <td>{s.status === 'Active' && <button type="button" className="link danger" onClick={() => cancel(s)}>Cancelar</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -302,7 +302,7 @@ function CatalogAdmin() {
           <h2>Nuevo artista</h2>
           <Field label="Nombre" error={errors.artistName}><input value={artist.name} maxLength={120} onChange={(e) => setArtist({ ...artist, name: e.target.value })} /></Field>
           <Field label="Género" error={errors.artistGenre}><input value={artist.genre} maxLength={60} onChange={(e) => setArtist({ ...artist, genre: e.target.value })} /></Field>
-          <button className="btn">Crear artista</button>
+          <button type="submit" className="btn">Crear artista</button>
         </form>
         <div className="card">
           <h2>Artistas</h2>
@@ -310,7 +310,7 @@ function CatalogAdmin() {
             {artists.map((a) => (
               <li key={a.id} className="song-row">
                 <div className="song-meta"><strong>{a.title}</strong><span>{a.genre}</span></div>
-                <button className="icon-btn danger" onClick={() => removeArtist(a)} aria-label="Eliminar">✕</button>
+                <button type="button" className="icon-btn danger" onClick={() => removeArtist(a)} aria-label="Eliminar">✕</button>
               </li>
             ))}
           </ul>
@@ -331,7 +331,7 @@ function CatalogAdmin() {
         </div>
         <Field label="URL de audio (HTTPS)" error={errors.audioUrl}><input value={song.audioUrl} maxLength={500} onChange={(e) => setSong({ ...song, audioUrl: e.target.value })} /></Field>
         <label className="check"><input type="checkbox" checked={song.isPremium} onChange={(e) => setSong({ ...song, isPremium: e.target.checked })} /> Premium</label>
-        <button className="btn">Crear canción</button>
+        <button type="submit" className="btn">Crear canción</button>
       </form>
     </div>
   );
@@ -388,7 +388,7 @@ function ReportsAdmin() {
             <Field label="Desde" error={error}><input type="date" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} /></Field>
             <Field label="Hasta"><input type="date" value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })} /></Field>
           </div>
-          <button className="btn">Generar</button>
+          <button type="submit" className="btn">Generar</button>
         </form>
         <div className="card">
           <h2>Reportes generados</h2>
@@ -396,7 +396,7 @@ function ReportsAdmin() {
             <ul className="picker">
               {reports.map((r) => (
                 <li key={r.id}>
-                  <button className="btn ghost wide" onClick={() => setSelected(r)}>
+                  <button type="button" className="btn ghost wide" onClick={() => setSelected(r)}>
                     {r.type} · {formatDate(r.periodStart)} – {formatDate(r.periodEnd)}
                   </button>
                 </li>

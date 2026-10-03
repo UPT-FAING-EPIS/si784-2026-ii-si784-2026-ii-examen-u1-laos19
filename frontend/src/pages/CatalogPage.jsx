@@ -69,7 +69,7 @@ export default function CatalogPage() {
         </div>
         <div className="chips">
           {TYPES.map((t) => (
-            <button
+            <button type="button"
               key={t.value}
               className={`chip ${filters.type === t.value ? 'on' : ''}`}
               onClick={() => {
@@ -107,7 +107,7 @@ export default function CatalogPage() {
                   <SongRow song={item} onAdd={user ? setAdding : undefined} />
                 </ul>
               ) : (
-                <button className="tile-body" onClick={() => open(item)}>
+                <button type="button" className="tile-body" onClick={() => open(item)}>
                   <span className="tile-type">{item.type === 'album' ? 'Álbum' : 'Artista'}</span>
                   <strong>{item.title}</strong>
                   <span className="muted">{item.subtitle}</span>
@@ -121,16 +121,16 @@ export default function CatalogPage() {
 
       {pages > 1 && (
         <div className="pager">
-          <button className="btn ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button>
+          <button type="button" className="btn ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button>
           <span>Página {page} de {pages}</span>
-          <button className="btn ghost" disabled={page >= pages} onClick={() => setPage(page + 1)}>Siguiente</button>
+          <button type="button" className="btn ghost" disabled={page >= pages} onClick={() => setPage(page + 1)}>Siguiente</button>
         </div>
       )}
 
       {detail && (
         <div className="modal" role="dialog" aria-modal="true">
           <div className="card modal-body">
-            <button className="icon-btn close" onClick={() => setDetail(null)} aria-label="Cerrar">✕</button>
+            <button type="button" className="icon-btn close" onClick={() => setDetail(null)} aria-label="Cerrar">✕</button>
             {detail.type === 'album' && (
               <>
                 <span className="tile-type">Álbum · {detail.album.releaseYear}</span>

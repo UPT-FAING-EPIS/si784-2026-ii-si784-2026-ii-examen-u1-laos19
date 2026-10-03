@@ -371,6 +371,7 @@ public static class Program
         sb.AppendLine("```mermaid");
         sb.AppendLine("flowchart TB");
         sb.AppendLine("    dev([Desarrollador]) -->|git push| gh[GitHub Repository]");
+        sb.AppendLine("    gh -.OIDC sin secretos.-> AZ");
         sb.AppendLine("    subgraph GHA[\"GitHub Actions\"]");
         sb.AppendLine("        infra[infra.yml<br/>Terraform]");
         sb.AppendLine("        deploy[deploy.yml]");
@@ -379,8 +380,8 @@ public static class Program
         sb.AppendLine("        docs[generate-documentation.yml]");
         sb.AppendLine("    end");
         sb.AppendLine("    gh --> GHA");
-        sb.AppendLine("    sonar --> sc[(SonarCloud)]");
-        sb.AppendLine("    sec --> snyk[(Snyk / Semgrep)]");
+        sb.AppendLine("    sonar --> sc[(SonarQube efímero<br/>o SonarCloud)]");
+        sb.AppendLine("    sec --> snyk[(Semgrep / Trivy<br/>Snyk opcional)]");
         sb.AppendLine("    browser([Navegador del usuario])");
         sb.AppendLine("    subgraph AZ[\"Microsoft Azure - Resource Group\"]");
         if (Has("azurerm_static_web_app")) sb.AppendLine("        swa[Azure Static Web Apps<br/>Frontend React]");
@@ -391,7 +392,7 @@ public static class Program
             sb.AppendLine("            subgraph SAPP[\"snet-app\"]");
         }
 
-        if (Has("azurerm_linux_web_app")) sb.AppendLine("                app[App Service Linux<br/>contenedor .NET 8 chiseled<br/>Managed Identity]");
+        if (Has("azurerm_linux_web_app")) sb.AppendLine("                app[App Service Linux<br/>contenedor .NET 8 distroless<br/>Managed Identity]");
         if (Has("azurerm_virtual_network")) sb.AppendLine("            end\n            subgraph SDB[\"snet-db\"]");
         if (Has("azurerm_postgresql_flexible_server")) sb.AppendLine("                pg[(PostgreSQL Flexible Server 16<br/>acceso privado)]");
         if (Has("azurerm_virtual_network")) sb.AppendLine("            end\n        end");

@@ -24,6 +24,16 @@ resource "random_password" "jwt" {
   special = false
 }
 
+# Contraseña del administrador inicial de la aplicación (sin secretos manuales).
+# Se consulta con: terraform output -raw admin_password  (o en Configuración del App Service).
+resource "random_password" "admin" {
+  length      = 20
+  special     = false
+  min_upper   = 2
+  min_lower   = 2
+  min_numeric = 2
+}
+
 # ---------------------------------------------------------------------------
 # Registro de contenedores
 # ---------------------------------------------------------------------------
@@ -33,7 +43,13 @@ resource "azurerm_container_registry" "main" {
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"
   admin_enabled       = false
-  tags                = var.tags
+  # El SKU Basic no admite redes privadas; el acceso exige autenticación de Entra ID.
+  public_network_access_enabled = true
+  tags                          = var.tags
+
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -135,6 +151,25 @@ resource "azurerm_postgresql_flexible_server_configuration" "require_ssl" {
   value     = "on"
 }
 
+# Auditoría y protección de conexiones.
+resource "azurerm_postgresql_flexible_server_configuration" "log_connections" {
+  name      = "log_connections"
+  server_id = azurerm_postgresql_flexible_server.main.id
+  value     = "on"
+}
+
+resource "azurerm_postgresql_flexible_server_configuration" "log_checkpoints" {
+  name      = "log_checkpoints"
+  server_id = azurerm_postgresql_flexible_server.main.id
+  value     = "on"
+}
+
+resource "azurerm_postgresql_flexible_server_configuration" "connection_throttling" {
+  name      = "connection_throttle.enable"
+  server_id = azurerm_postgresql_flexible_server.main.id
+  value     = "on"
+}
+
 # ---------------------------------------------------------------------------
 # Frontend: Azure Static Web Apps
 # ---------------------------------------------------------------------------
@@ -207,6 +242,9 @@ resource "azurerm_linux_web_app" "api" {
     }
   }
 
+  # La autenticación la implementa la propia API (JWT + roles); el catálogo y /health
+  # son públicos por diseño, por eso no se habilita la autenticación de plataforma (Easy Auth).
+
   logs {
     detailed_error_messages = false
     failed_request_tracing  = true
@@ -232,7 +270,7 @@ resource "azurerm_linux_web_app" "api" {
     ConnectionStrings__Default            = "Host=${azurerm_postgresql_flexible_server.main.fqdn};Port=5432;Database=${local.database_name};Username=${azurerm_postgresql_flexible_server.main.administrator_login};Password=${random_password.postgres.result};SSL Mode=Require"
     Jwt__Key                              = random_password.jwt.result
     Seed__AdminEmail                      = var.admin_email
-    Seed__AdminPassword                   = var.admin_password
+    Seed__AdminPassword                   = random_password.admin.result
     Cors__AllowedOrigins__0               = "https://${azurerm_static_web_app.frontend.default_host_name}"
   }
 
