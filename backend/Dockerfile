@@ -13,7 +13,7 @@ RUN dotnet publish src/MusicStream.Api/MusicStream.Api.csproj \
       -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
 # ---------- Imagen final (chiseled: sin shell ni gestor de paquetes, usuario no root) ----------
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-noble-chiseled@sha256:a5a4846e78cd50d3d71c780bff1fc212349e514e8e4bf7658638b48a72083b43 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled@sha256:48e51f2f6798897be7ac4e775c049ed8fe60d3190f637e1f9c9dc7513efa659c AS final
 WORKDIR /app
 
 ENV ASPNETCORE_HTTP_PORTS=8080 \
