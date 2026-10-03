@@ -1,0 +1,65 @@
+name: generate-documentation
+
+# Genera la documentación técnica en formato Mermaid a partir del código:
+#  - Diccionario de datos y diagrama entidad-relación (modelo EF Core)
+#  - Diagrama de clases (reflexión sobre el ensamblado de la API)
+#  - Diagrama de componentes (controladores, servicios y páginas del frontend)
+#  - Diagrama de despliegue (recursos declarados en Terraform)
+# El resultado se publica en /docs (commit automático) y como artefacto.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/src/**"
+      - "backend/tools/**"
+      - "frontend/src/**"
+      - "infra/**"
+      - ".github/workflows/generate-documentation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    name: Generar documentación
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Generar diagramas y diccionario de datos
+        run: dotnet run --project backend/tools/MusicStream.DocGen --configuration Release -- . docs
+
+      - name: Validar sintaxis Mermaid
+        run: |
+          npm install --global @mermaid-js/mermaid-cli
+          echo '{"args":["--no-sandbox"]}' > /tmp/puppeteer.json
+          mkdir -p /tmp/rendered
+          for f in docs/database/er-diagram.md docs/architecture/*.md; do
+            mmdc -p /tmp/puppeteer.json -i "$f" -o "/tmp/rendered/$(basename "$f")"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: documentation
+          path: |
+            docs/
+            /tmp/rendered/*.svg
+
+      - name: Commit de la documentación
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "Documentación sin cambios."
+          else
+            git commit -m "docs: actualizar documentación generada [skip ci]"
+            git push
+          fi

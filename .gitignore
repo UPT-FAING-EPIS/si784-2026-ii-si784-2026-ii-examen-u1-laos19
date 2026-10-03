@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+bin/
+obj/
+TestResults/
+*.db
+.terraform/
+*.tfstate*

@@ -1,0 +1,212 @@
+name: snyk-semgrep
+
+# Escaneo de seguridad:
+#  - Semgrep (SAST) sobre el código fuente.
+#  - Snyk Open Source (dependencias .NET y npm), Snyk Code (SAST) y Snyk Container (imagen del backend).
+# Los reportes (SARIF, JSON y HTML) se publican como artefacto "security-reports"
+# y en la pestaña Security > Code scanning. El job falla si se detecta alguna vulnerabilidad.
+# Secretos: SNYK_TOKEN. Opcional: SEMGREP_APP_TOKEN.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Semgrep scan
+        id: scan
+        run: |
+          mkdir -p reports
+          set +e
+          semgrep scan \
+            --config p/default \
+            --config p/csharp \
+            --config p/react \
+            --config p/javascript \
+            --config p/dockerfile \
+            --config p/terraform \
+            --config p/github-actions \
+            --config p/secrets \
+            --metrics=off \
+            --error \
+            --sarif-output=reports/semgrep.sarif \
+            --json-output=reports/semgrep.json \
+            --text-output=reports/semgrep.txt \
+            backend frontend infra .github
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resumen Semgrep
+        if: always()
+        run: |
+          total=$(python3 -c "import json;print(len(json.load(open('reports/semgrep.json'))['results']))" 2>/dev/null || echo "?")
+          {
+            echo "## Semgrep"
+            echo ""
+            echo "Hallazgos: **$total**"
+            echo ""
+            echo '```'
+            head -c 60000 reports/semgrep.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/semgrep.sarif
+          category: semgrep
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: security-reports-semgrep
+          path: reports/
+
+      - name: Verificar resultado
+        if: steps.scan.outputs.exit_code != '0'
+        run: |
+          echo "::error::Semgrep encontró hallazgos de seguridad."
+          exit 1
+
+  snyk:
+    name: Snyk (código, dependencias e imagen)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar Snyk CLI y snyk-to-html
+        run: npm install --global snyk snyk-to-html
+
+      - name: Restaurar dependencias
+        run: |
+          dotnet restore backend/MusicStream.sln
+          (cd frontend && npm ci)
+
+      - name: Construir imagen del backend
+        run: docker build -t musicstream-api:scan backend
+
+      - name: Snyk Open Source - backend (.NET)
+        id: deps_backend
+        run: |
+          mkdir -p reports
+          set +e
+          snyk test --file=backend/MusicStream.sln --severity-threshold=low \
+            --json-file-output=reports/snyk-backend-deps.json --sarif-file-output=reports/snyk-backend-deps.sarif
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Snyk Open Source - frontend (npm)
+        id: deps_frontend
+        run: |
+          set +e
+          snyk test --file=frontend/package-lock.json --severity-threshold=low \
+            --json-file-output=reports/snyk-frontend-deps.json --sarif-file-output=reports/snyk-frontend-deps.sarif
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Snyk Code (SAST)
+        id: code
+        run: |
+          set +e
+          snyk code test backend frontend --severity-threshold=low \
+            --json-file-output=reports/snyk-code.json --sarif-file-output=reports/snyk-code.sarif
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Snyk Container - imagen del backend
+        id: container
+        run: |
+          set +e
+          snyk container test musicstream-api:scan --file=backend/Dockerfile --severity-threshold=low \
+            --json-file-output=reports/snyk-container.json --sarif-file-output=reports/snyk-container.sarif
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Generar reportes HTML
+        if: always()
+        run: |
+          for f in reports/snyk-*.json; do
+            [ -s "$f" ] && snyk-to-html -i "$f" -o "${f%.json}.html" || true
+          done
+          {
+            echo "## Snyk"
+            echo ""
+            echo "| Escaneo | Resultado |"
+            echo "|---|---|"
+            echo "| Dependencias backend (.NET) | ${{ steps.deps_backend.outputs.exit_code == '0' && '✅ sin vulnerabilidades' || '❌ revisar reporte' }} |"
+            echo "| Dependencias frontend (npm) | ${{ steps.deps_frontend.outputs.exit_code == '0' && '✅ sin vulnerabilidades' || '❌ revisar reporte' }} |"
+            echo "| Snyk Code (SAST) | ${{ steps.code.outputs.exit_code == '0' && '✅ sin vulnerabilidades' || '❌ revisar reporte' }} |"
+            echo "| Imagen de contenedor | ${{ steps.container.outputs.exit_code == '0' && '✅ sin vulnerabilidades' || '❌ revisar reporte' }} |"
+            echo ""
+            echo "Los reportes HTML/JSON/SARIF están en el artefacto **security-reports-snyk**."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar SARIF (código)
+        if: always() && hashFiles('reports/snyk-code.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/snyk-code.sarif
+          category: snyk-code
+
+      - name: Publicar SARIF (contenedor)
+        if: always() && hashFiles('reports/snyk-container.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/snyk-container.sarif
+          category: snyk-container
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: security-reports-snyk
+          path: reports/
+
+      - name: Verificar resultado
+        env:
+          DEPS_BACKEND: ${{ steps.deps_backend.outputs.exit_code }}
+          DEPS_FRONTEND: ${{ steps.deps_frontend.outputs.exit_code }}
+          CODE: ${{ steps.code.outputs.exit_code }}
+          CONTAINER: ${{ steps.container.outputs.exit_code }}
+        run: |
+          status=0
+          for pair in "backend:$DEPS_BACKEND" "frontend:$DEPS_FRONTEND" "code:$CODE" "container:$CONTAINER"; do
+            name="${pair%%:*}"; code="${pair##*:}"
+            if [ "$code" != "0" ]; then echo "::error::Snyk $name terminó con código $code"; status=1; fi
+          done
+          exit $status
