@@ -13,7 +13,7 @@ RUN dotnet publish src/MusicStream.Api/MusicStream.Api.csproj \
       -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
 # ---------- Imagen final (Azure Linux distroless: sin shell ni gestor de paquetes, usuario no root) ----------
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-azurelinux3.0-distroless@sha256:6d7c5efaf40e11b600cf48ecc3c9e216ddf8ecc905d9755faaf0dbd9c0cf3935 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-azurelinux3.0-distroless@sha256:42d59c90812ce53255a3102225c4b5a51fbd2471b32e34289fdd5ea10155da4e AS final
 WORKDIR /app
 
 ENV ASPNETCORE_HTTP_PORTS=8080 \
